@@ -1,5 +1,5 @@
 # Verwende ein Node.js-Image als Basis
-FROM node:16
+FROM node:18
 
 # Erstelle ein Arbeitsverzeichnis
 WORKDIR /app
@@ -20,4 +20,4 @@ RUN npm run build
 EXPOSE 5173
 
 # Starte die Anwendung
-CMD ["npm", "run", "dev"]
+CMD ["npm", "run", "dev", "--", "--host"]
