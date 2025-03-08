@@ -4,8 +4,6 @@
     import * as d3 from 'd3';
 
     let data = [];
-    let selectedHours = 24;
-
 
     let chartBz = {
         show: true,
@@ -22,63 +20,105 @@
         color: 'yellow'
     };
 
-
-    $: {
-        drawChart(chartBz, chartBy, chartBx, selectedHours);
+    let chartBt = {
+        show: true,
+        color: 'white'
     }
 
+    let magChart;
+    let bzbyChart;
+
+
+    // Stunden Auswahl
+    let hourList = [
+        { value: 6, label: '6 Stunden' },
+        { value: 12, label: '12 Stunden' },
+        { value: 24, label: '24 Stunden' }
+    ]
+    let selectedHour = hourList[0].value;
+
+
+    $: {
+        drawMagChart(chartBx, chartBy, chartBz,chartBt, selectedHour);
+    }
+
+    // Daten laden
     onMount(
         async () => {
-            data = await fetchMAGData();
-            drawChart(chartBx, chartBy, chartBz);
+            await updateData();
+            setInterval(updateData, 60000);
         }
     );
+
+    async function updateData() {
+        data = await fetchMAGData();
+        drawMagChart(chartBx, chartBy, chartBz,chartBt, selectedHour);
+        drawBzByChart(chartBy, chartBz);
+    }
 
     /**
      * @param {{ show: boolean; color: string; }} [chartbx]
      * @param {{ show: boolean; color: string; }} [chartby]
      * @param {{ show: boolean; color: string; }} [chartbz]
-     * @param {number} [hours]
+     * @param {{ show: boolean; color: string; }} [chartbt]
+     * @param {number} [selectedhour]
      */
-    function drawChart(chartbx, chartby, chartbz, hours) {
+    function drawMagChart(chartbx, chartby, chartbz, chartbt, selectedhour) {
         const margin = { top: 20, right: 30, bottom: 40, left: 40 };
         const width = 1280 - margin.left - margin.right;
         const height = 640 - margin.top - margin.bottom;
 
-        let showbz = chartbx.show;
+        let showbx = chartbx.show;
         let showby = chartby.show;
-        let showbx = chartbz.show;
+        let showbz = chartbz.show;
+        let showbt = chartbt.show;
 
         let colorbz = chartbz.color;
         let colorby = chartby.color;
         let colorbx = chartbx.color;
+        let colorbt = chartbt.color;
 
         let filteredData = data;
 
-        let selectedHours = hours;
+        let hours = selectedhour;
         
-        if (selectedHours) {
+        if (hours) {
             const now = new Date();
-            const timeLimit = new Date(now.getTime() - selectedHours * 60 * 60 * 1000);
+            const timeLimit = new Date(now.getTime() - hours * 60 * 60 * 1000);
             filteredData = data.filter(d => d.time >= timeLimit);
         }
 
 
-        d3.select('#chart').selectAll('svg').remove();
-
-        const svg = d3.select('#chart')
+        // Remove old chart
+        d3.select(magChart).selectAll('svg').remove();
+        
+        // Create SVG
+        const svg = d3.select(magChart)
             .append('svg')
             .attr('width', width + margin.left + margin.right)
             .attr('height', height + margin.top + margin.bottom)
             .append('g')
             .attr('transform', `translate(${margin.left},${margin.top})`);
 
+        // Create x-axis
         const x = d3.scaleTime()
             .domain(d3.extent(filteredData, d => d.time))
             .range([0, width]);
 
+        // Find min and max values for y-axis
+        let minValue = d3.min(filteredData, d => d3.min([d.bz, d.by, d.bx, d.bt]));
+        if (minValue > -20) {
+            minValue = -20;
+        }
+
+        let maxValue = d3.max(filteredData, d => d3.max([d.bz, d.by, d.bx, d.bt]));
+        if (maxValue < 20) {
+            maxValue = 20;
+        }
+
+        // Create y-axis
         const y = d3.scaleLinear()
-            .domain([d3.min(filteredData, d => d.bz), d3.max(data, d => d.bz)])
+            .domain([minValue,maxValue])
             .nice()
             .range([height, 0]);
 
@@ -101,8 +141,8 @@
                 .attr('stroke', colorbz)
                 .attr('stroke-width', 1.5)
                 .attr('d', d3.line()
-                    .x(d => x(d.time))
-                    .y(d => y(d.bz)));
+                    .x(filteredData => x(filteredData.time))
+                    .y(filteredData => y(filteredData.bz)));
         }
 
         // By-chart
@@ -113,8 +153,8 @@
                 .attr('stroke', colorby)
                 .attr('stroke-width', 1.5)
                 .attr('d', d3.line()
-                    .x(d => x(d.time))
-                    .y(d => y(d.by)));
+                    .x(filteredData => x(filteredData.time))
+                    .y(filteredData => y(filteredData.by)));
         }
 
         // Bx-chart
@@ -125,8 +165,20 @@
                 .attr('stroke', colorbx)
                 .attr('stroke-width', 1.5)
                 .attr('d', d3.line()
-                    .x(d => x(d.time))
-                    .y(d => y(d.bx)));
+                    .x(filteredData => x(filteredData.time))
+                    .y(filteredData => y(filteredData.bx)));
+        }
+
+        // Bx-chart
+        if (showbt) {
+            svg.append('path')
+                .datum(filteredData)
+                .attr('fill', 'none')
+                .attr('stroke', colorbt)
+                .attr('stroke-width', 1.5)
+                .attr('d', d3.line()
+                    .x(filteredData => x(filteredData.time))
+                    .y(filteredData => y(filteredData.bt)));
         }
 
         // Zero-line
@@ -139,10 +191,88 @@
                 .x(d => x(d.time))
                 .y(d => y(0)));
     }
+
+
+    function drawBzByChart(chartby, chartbz) {
+        const margin = { top: 20, right: 30, bottom: 40, left: 40 };
+        const width = 1280 - margin.left - margin.right;
+        const height = 640 - margin.top - margin.bottom;
+
+        let colorbz = chartbz.color;
+        let colorby = chartby.color;
+
+        let filteredData = data.filter(d => d.time >= new Date(new Date().getTime()));
+
+        // Remove old chart
+        d3.select(bzbyChart).selectAll('svg').remove();
+        
+        // Create SVG
+        const svg = d3.select(bzbyChart)
+            .append('svg')
+            .attr('width', width + margin.left + margin.right)
+            .attr('height', height + margin.top + margin.bottom)
+            .append('g')
+            .attr('transform', `translate(${margin.left},${margin.top})`);
+
+        // Find min and max values for x-axis    
+        let minByValue = d3.min(filteredData, d => d.by);
+        if (minByValue > -20) {
+            minByValue = -20;
+        }
+        let maxByValue = d3.max(filteredData, d => d.by);
+        if (maxByValue < 20) {
+            maxByValue = 20;
+        }
+        // Create x-axis
+        const x = d3.scaleTime()
+            .domain([minByValue, maxByValue])
+            .nice()
+            .range([0, width]); 
+        
+        // Find min and max values for y-axis
+        let minValue = d3.min(filteredData, d => d3.min([d.bz, d.by]));
+        if (minValue > -20) {
+            minValue = -20;
+        }
+
+        let maxValue = d3.max(filteredData, d => d3.max([d.bz, d.by]));
+        if (maxValue < 20) {
+            maxValue = 20;
+        }
+
+        // Create y-axis
+        const y = d3.scaleLinear()
+            .domain([minValue,maxValue])
+            .nice()
+            .range([height, 0]);
+
+        // Create Chart
+        svg.append('g')
+            .attr('class', 'x-axis')
+            .attr('transform', `translate(0,${height})`)
+            .call(d3.axisBottom(x));
+
+        svg.append('g')
+            .attr('class', 'y-axis')
+            .call(d3.axisLeft(y));
+
+
+
+    // Bz-chart
+        svg.append('path')
+            .datum(filteredData)
+            .attr('fill', 'none')
+            .attr('stroke', colorbz)
+            .attr('stroke-width', 1.5)
+            .attr('d', d3.line()
+                .x(filteredData => x(filteredData.by))
+                .y(filteredData => y(filteredData.bz)));
+    }
+                    
 </script>
 
 <style>
-    #chart {
+    #magchart {
         width: 100%;
         height: 100%;
     }
@@ -151,32 +281,54 @@
         font-size: 10px;
     }
     .x-axis path, y-axis path { display: none;}
+    #controls {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 1rem;
+    }
+    #controls {
+        margin-right: 1rem;
+        top: 0px;
+    }
+
 </style>
 
 
-<div id="chart"></div>
-
 <div>
-    <label>
-        <input type="checkbox" bind:checked={chartBz.show}>
-        Bz Chart anzeigen
-    </label>
-    <label>
-        <input type="checkbox" bind:checked={chartBy.show}>
-        By Chart anzeigen
-    </label>
-    <label>
-        <input type="checkbox" bind:checked={chartBx.show}>
-        Bx Chart anzeigen
-    </label>
+    <h2>ACE Sonnenwind</h2>
+    <div id="magchart" bind:this={magChart}></div>
+    <div id="controls">
+        <div>
+            <label style=color:{chartBx.color}>
+                <input type="checkbox" bind:checked={chartBx.show}>
+                Bx
+            </label>
+            <label style=color:{chartBy.color}>
+                <input type="checkbox" bind:checked={chartBy.show}>
+                By
+            </label>                
+            <label style=color:{chartBz.color}>
+                <input type="checkbox" bind:checked={chartBz.show}>
+                Bz
+            </label>
+            <label style=color:{chartBt.color}>
+                <input type="checkbox" bind:checked={chartBt.show}>
+                Bt
+            </label>
+        </div>
+        <div>
+            <label>
+                Zeitraum:
+                <select bind:value={selectedHour}>
+                    {#each hourList as hour}
+                        <option value={hour.value}>{hour.label}</option>
+                    {/each}
+                </select>
+            </label>
+        </div>   
+    </div>    
 </div>
-<div>
-    <label>
-        Zeitraum:
-        <select bind:value={selectedHours}>
-            <option value="6">6 Stunden</option>
-            <option value="12">12 Stunden</option>
-            <option value="24">24 Stunden</option>
-        </select>
-    </label>
+
+<div id=bzbyChart bind:this={bzbyChart}>
+    <h2>ACE Magnetfeld</h2>
 </div>
